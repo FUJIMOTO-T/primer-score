@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Primer Fit Score (>
+  <style>
+    :root { --bg:#0f172a; --panel:#111827; --muted:#9ca3af; --text:#e5e7eb; --accent:#22c55e; --warn:#ef4444; }
+    html, body { margin:0; padding:0; background:var(--bg); color:var(--text);
+      font:16px/1.6 system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Helvetica, Arial, sans-serif; }
+    header { padding: 20px 16px; border-bottom:1px solid #1f2937;
+      background: linear-gradient(180deg, rgba(34,197,94,0.15), rgba(17,24,39,0)); }
+    h1 { margin:0; font-size: 1.25rem; }
+    main { padding: 20px 16px; max-width: 1100px; margin: 0 auto; }
+    .grid { display:grid; grid-template-columns: 1fr; gap:16px; }
+    @media (min-width: 980px) { .grid { grid-template-columns: 1fr 1fr; } }
+    .card { background:#0b1220; border:1px solid #1f2937; border-radius:12px; padding:16px; }
+    textarea { width:100%; min-height:160px; padding:12px; border-radius:8px; background:#0a0f1d; color:var(--text);
+      border:1px solid #1f2937; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace; }
+    label { display:block; font-weight:600; margin:6px 0; }
+    .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+    .btn { background:#16a34a; color:#fff; border:none; border-radius:8px; padding:10px 14px; font-weight:700; cursor:pointer; }
+    .btn.alt { background:#374151; }
+    .small { color: var(--muted); font-size: 0.9rem; }
+    .score { font-size: 2rem; font-weight: 800; color: #a7f3d0; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { padding:6px 8px; border-bottom:1px solid #1f2937; text-align:right;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Courier New", monospace; }
+    th { text-align:center; position:sticky; top:0; background:#0b1220; }
+    .hl { background: rgba(253, 224, 71, .12); }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-weight:700; }
+    .ok { background: rgba(34,197,94,.15); color:#86efac; border:1px solid rgba(34,197,94,.35); }
+    .bad { background: rgba(239,68,68,.12); color:#fca5a5; border:1px solid rgba(239,68,68,.35); }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Primer Fit Score (IUPAC-Consensus / 0–100)</h1>
+  <div class="small">
+    3′-end weighting (positions 1–12: 0.2, 13–16: 0.5, 17–20: 1.0). IUPAC matches by consensus set overlap (non-empty intersection ⇒ match).
+    <br/>Primer-side <strong>N</strong> always matches; blank on template side is treated as mismatch.
+  </div>
+</header>
+
+<main>
+  <div class="grid">
+    <section class="card">
+      <label>Primer sequence (5′→3′)</label>
+      <textarea id="primer" placeholder="e.g., TCNGGRAAYTTCCAVYACCA"></textarea>
+      <div class="row small">
+        <label><input type="checkbox" id="sanitizeU" checked> Replace U with T</label>
+        <label><input type="checkbox" id="strictLen"> Pre-aligned input: evaluate full length (3′ side follows the selection on the right)</label>
+      </div>
+    </section>
+
+    <section class="card">
+      <label>Template sequence (5′→3′)</label>
+      <textarea id="template" placeholder="e.g., Target region (5′→3′)"></textarea>
+      <div class="row small">
+        <label><input type="checkbox" id="useRC" checked> Compare against the reverse complement (5′→3′)</label>
+        <label>3′ end location:
+          <select id="threePrimeSide">
+            <option value="right">Right end is 3′</option>
+            <option value="left">Left end is 3′ (use pre-aligned text as-is)</option>
+          </select>
+        </label>
+      </div>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:16px;">
+    <div class="row">
+      <button class="btn" id="runBtn">Calculate score</button>
+      <button class="btn alt" id="clearBtn">Clear input</button>
+      <div class="small">
+        By default, the rightmost (3′) 20 nt are evaluated for unaligned inputs.
+        With “Pre-aligned”, the full length is evaluated and the 3′ side follows the selection above.
+      </div>
+    </div>
+    <hr style="border:0;border-top:1px solid #1f2937; margin:12px 0;" />
+    <div class="row" style="justify-content:space-between;">
+      <div>
+        <div class="small">Position-weighted fit score</div>
+        <div class="score" id="score">–</div>
+      </div>
+      <div>
+        <span class="pill ok" id="denom">Total effective weight: –</span>
+        <span class="pill bad" id="wmism">Weighted mismatch sum: –</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:16px;">
+    <div style="overflow:auto; max-height:420px;">
+      <table>
+        <thead>
+          <tr>
+            <th>pos</th>
+            <th>w</th>
+            <th>primer</th>
+            <th>template*</th>
+            <th>d</th>
+            <th>w×d</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="small" style="margin-top:8px;">
+      * The template is reverse-complemented depending on settings, then evaluated on the rightmost 20 nt or the full length.<br/>
+      <strong>Method key points:</strong> IUPAC letters match by consensus-set overlap (intersection ≠ ∅ ⇒ match = 0, else mismatch = 1).
+      Primer-side <code>N</code> always matches (0); blank on the template side counts as mismatch (1).<br/>
+      Score: <code>Score = 100 × ( 1 − (Σ w_i d_i) / (Σ w_i) )</code>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:16px;">
+    <details>
+      <summary><strong>Method summary (for manuscript Methods)</strong></summary>
+      <div class="small">
+        This tool returns a normalized fit score (0–100) between a primer and a template over 20 nt (or the full aligned length),
+        using position weights to emphasize the 3′ end (positions 1–12: 0.2; 13–16: 0.5; 17–20: 1.0).
+        At each position, the mismatch indicator <code>d_i</code> is 0 for a match and 1 for a mismatch.
+        IUPAC ambiguity codes are treated as consensus sets; a match occurs if the intersection of the primer and template sets is non-empty.
+        The primer-side <code>N</code> always matches; blanks in the template are treated as mismatches.
+        The rationale of emphasizing the 3′ end and using a weighted objective is consistent with primer design practice (e.g., terminal stability and mis-priming concerns).
+      </div>
+    </details>
+  </section>
+</main>
+
+<script>
+(function(){
+  const primerEl = document.getElementById('primer');
+  const templateEl = document.getElementById('template');
+  const sanitizeU = document.getElementById('sanitizeU');
+  const strictLen = document.getElementById('strictLen');
+  const useRC = document.getElementById('useRC');
+  const threePrimeSide = document.getElementById('threePrimeSide');
+  const runBtn = document.getElementById('runBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const scoreEl = document.getElementById('score');
+  const denomEl = document.getElementById('denom');
+  const wmismEl = document.getElementById('wmism');
+  const tbody = document.getElementById('tbody');
+
+  // IUPAC and complements (kept identical to JP version’s logic)
+  const IUPAC = {
+    'A': new Set(['A']), 'C': new Set(['C']), 'G': new Set(['G']), 'T': new Set(['T']),
+    'R': new Set(['A','G']), 'Y': new Set(['C','T']), 'S': new Set(['G','C']), 'W': new Set(['A','T']),
+    'K': new Set(['G','T']), 'M': new Set(['A','C']), 'B': new Set(['C','G','T']), 'D': new Set(['A','G','T']),
+    'H': new Set(['A','C','T']), 'V': new Set(['A','C','G']), 'N': new Set(['A','C','G','T'])
+  };
+  const COMP = {'A':'T','C':'G','G':'C','T':'A','R':'Y','Y':'R','S':'S','W':'W','K':'M','M':'K','B':'V','V':'B','D':'H','H':'D','N':'N'};
+
+  function clean(s){ if(!s) return ''; s=(''+s).toUpperCase().replace(/\s+/g,''); if(sanitizeU.checked) s=s.replace(/U/g,'T'); return s; }
+  function rc(s){
+    let out='';
+    for(let i=s.length-1;i>=0;i--){
+      out += (COMP[s[i]] || 'N');
+    }
+    return out;
+  }
+  function weights(n, side){
+    const w = new Array(n).fill(0.2);
+    const high = Math.min(4, n);
+    const mid  = Math.min(4, Math.max(0, n - high));
+    if(side==='left'){
+      for(let i=0;i<high;i++) w[i]=1.0;
+      for(let i=high;i<high+mid;i++) w[i]=0.5;
+    }else{
+      for(let i=n-high;i<n;i++) w[i]=1.0;
+      for(let i=Math.max(0,n-high-mid); i<n-high; i++) w[i]=0.5;
+    }
+    return w;
+  }
+  function setOf(b){ return IUPAC[b] || (b ? new Set([b]) : new Set()); }
+
+  function compute(){
+    tbody.innerHTML='';
+    const p = clean(primerEl.value);
+    let t   = clean(templateEl.value);
+    if(!p || !t){
+      scoreEl.textContent='–';
+      denomEl.textContent='Total effective weight: –';
+      wmismEl.textContent='Weighted mismatch sum: –';
+      return;
+    }
+    if(useRC.checked) t = rc(t);
+
+    let pEval, tEval, side;
+    if(strictLen.checked){
+      const n = Math.min(p.length, t.length);
+      pEval = p.slice(0,n); tEval = t.slice(0,n); side = threePrimeSide.value;
+    }else{
+      const L = Math.min(20, p.length, t.length);
+      pEval = p.slice(-L); tEval = t.slice(-L); side = 'right';
+    }
+
+    const n = pEval.length; const w = weights(n, side);
+    let wsum=0, wmis=0;
+    const rows=[];
+    for(let i=0;i<n;i++){
+      const pb = pEval[i]; const tb = tEval[i];
+      const wi = w[i];
+      let d = 1; // default mismatch
+      if(pb==='N'){ d=0; }
+      else if(!tb){ d=1; }
+      else {
+        const sp = setOf(pb); const st = setOf(tb);
+        d = (sp.size>0 && st.size>0 && [...sp].some(x=>st.has(x))) ? 0 : 1;
+      }
+      const wd = wi*d; wsum+=wi; wmis+=wd;
+      rows.push({pos:i+1, w:wi, p:pb, t:tb, d, wd});
+    }
+    const score = wsum>0 ? 100*(1-(wmis/wsum)) : 0;
+    scoreEl.textContent = score.toFixed(2);
+    denomEl.textContent = `Total effective weight: ${wsum.toFixed(2)}`;
+    wmismEl.textContent = `Weighted mismatch sum: ${wmis.toFixed(2)}`;
+
+    const frag = document.createDocumentFragment();
+    for(const r of rows){
+      const tr=document.createElement('tr');
+      const td1=document.createElement('td'); td1.textContent=r.pos; td1.style.textAlign='center';
+      const td2=document.createElement('td'); td2.textContent=r.w.toFixed(1); if(r.w===1.0) td2.classList.add('hl');
+      const td3=document.createElement('td'); td3.textContent=r.p || '';
+      const td4=document.createElement('td'); td4.textContent=r.t || '';
+      const td5=document.createElement('td'); td5.textContent=r.d;
+      const td6=document.createElement('td'); td6.textContent=r.wd.toFixed(2);
+      tr.append(td1,td2,td3,td4,td5,td6); frag.appendChild(tr);
+    }
+    tbody.appendChild(frag);
+  }
+
+  runBtn.addEventListener('click', compute);
+  clearBtn.addEventListener('click', ()=>{
+    primerEl.value=''; templateEl.value='';
+    tbody.innerHTML='';
+    scoreEl.textContent='–';
+    denomEl.textContent='Total effective weight: –';
+    wmismEl.textContent='Weighted mismatch sum: –';
+  });
+})();
+</script>
+</body>
+</html>
