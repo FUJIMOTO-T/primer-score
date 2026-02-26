@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>プライマー適合スコア（IUPACコンセンサス法 / 0–100）</title>
+<style>
+  :root { --bg:#0f172a; --panel:#111827; --muted:#9ca3af; --text:#e5e7eb; --accent:#22c55e; --warn:#ef4444; }
+  html, body { margin:0; padding:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui, -apple-system, Segoe UI, Roboto, Noto Sans JP, Helvetica, Arial, sans-serif; }
+  header { padding: 20px 16px; border-bottom:1px solid #1f2937; background: linear-gradient(180deg, rgba(34,197,94,0.15), rgba(17,24,39,0)); }
+  h1 { margin:0; font-size: 1.25rem; }
+  main { padding: 20px 16px; max-width: 1100px; margin: 0 auto; }
+  .grid { display:grid; grid-template-columns: 1fr; gap:16px; }
+  @media (min-width: 980px) { .grid { grid-template-columns: 1fr 1fr; } }
+  .card { background:#0b1220; border:1px solid #1f2937; border-radius:12px; padding:16px; }
+  textarea { width:100%; min-height:160px; padding:12px; border-radius:8px; background:#0a0f1d; color:var(--text); border:1px solid #1f2937; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  label { display:block; font-weight:600; margin:6px 0; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+  .btn { background:#16a34a; color:#fff; border:none; border-radius:8px; padding:10px 14px; font-weight:700; cursor:pointer; }
+  .btn.alt { background:#374151; }
+  .small { color: var(--muted); font-size: 0.9rem; }
+  .score { font-size: 2rem; font-weight: 800; color: #a7f3d0; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { padding:6px 8px; border-bottom:1px solid #1f2937; text-align:right; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+  th { text-align:center; position:sticky; top:0; background:#0b1220; }
+  .hl { background: rgba(253, 224, 71, .12); }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-weight:700; }
+  .ok { background: rgba(34,197,94,.15); color:#86efac; border:1px solid rgba(34,197,94,.35); }
+  .bad { background: rgba(239,68,68,.12); color:#fca5a5; border:1px solid rgba(239,68,68,.35); }
+</style>
+</head>
+<body>
+<header>
+  <h1>プライマー適合スコア（IUPACコンセンサス法 / 0–100）</h1>
+  <div class="small">3′末端重み（1–12:0.2, 13–16:0.5, 17–20:1.0）。IUPACはコンセンサス一致（交差が非空→一致）。<br>プライマー側の <strong>N</strong> は常に一致、テンプレート側の空欄は不一致。</div>
+</header>
+<main>
+  <div class="grid">
+    <section class="card">
+      <label>プライマー配列（5'→3'）</label>
+      <textarea id="primer" placeholder="例: TCNGGRAAYTTCCAVYACCA"></textarea>
+      <div class="row small">
+        <label><input type="checkbox" id="sanitizeU" checked> U を T に置換</label>
+        <label><input type="checkbox" id="strictLen"> アライメント済: 全長をそのまま評価（3′側は下の選択に従う）</label>
+      </div>
+    </section>
+    <section class="card">
+      <label>テンプレート配列（5'→3'）</label>
+      <textarea id="template" placeholder="例: ターゲット領域（5'→3'）"></textarea>
+      <div class="row small">
+        <label><input type="checkbox" id="useRC" checked> テンプレートを逆相補（5'→3'）にして比較</label>
+        <label>3′末端の位置：
+          <select id="threePrimeSide">
+            <option value="right">右端が3′</option>
+            <option value="left">左端が3′（アライメント済みテキストをそのまま）</option>
+          </select>
+        </label>
+      </div>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:16px;">
+    <div class="row">
+      <button class="btn" id="runBtn">スコア計算</button>
+      <button class="btn alt" id="clearBtn">入力クリア</button>
+      <div class="small">既定では右端（3′）を揃えて最大20 nt を評価（未整列入力向け）。「アライメント済」チェック時は全長を評価し、3′側は上の選択で指定。</div>
+    </div>
+    <hr style="border:0;border-top:1px solid #1f2937; margin:12px 0;" />
+    <div class="row" style="justify-content:space-between;">
+      <div>
+        <div class="small">位置重み付き適合スコア</div>
+        <div class="score" id="score">–</div>
+      </div>
+      <div>
+        <span class="pill ok" id="denom">有効重み合計: –</span>
+        <span class="pill bad" id="wmism">ミスマッチ重み合計: –</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:16px;">
+    <div style="overflow:auto; max-height:420px;">
+      <table>
+        <thead>
+          <tr>
+            <th>pos</th>
+            <th>w</th>
+            <th>primer</th>
+            <th>template*</th>
+            <th>d</th>
+            <th>w×d</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="small" style="margin-top:8px;">
+      * テンプレートは設定に応じて逆相補し、右端20nt評価または全長評価を行います。<br>
+      **本法の要点**：IUPACはコンセンサス一致（交差が非空→一致=0、不一致=1）。プライマー側Nは常に一致（0）、テンプレート側空欄は不一致（1）。<br>
+      スコア：<code>Score = 100 × ( 1 − (Σ w_i d_i) / (Σ w_i) )</code>
+    </div>
+  </section>
+
+  <section class="card" style="margin-top:16px;">
+    <details>
+      <summary><strong>方法の背景（論文記載用サマリ）</strong></summary>
+      <div class="small">
+        本法は、プライマー–テンプレートの 20 nt（またはアラインメント済み全長）について、3′末端の影響を強調する位置重み（1–12:0.2, 13–16:0.5, 17–20:1.0）を付し、各位置のミスマッチ指標 <code>d_i</code>（一致=0/不一致=1）により 0–100 に正規化した適合スコアを返します。IUPAC 記号は集合一致（交差が非空）で一致とみなし、プライマー側の N は常に一致、テンプレート側の空欄は不一致とします。3′末端重視の発想と重み付き目的関数の枠組みは、Primer3 に代表される設計実務と整合します（端末安定性・ミスプライミングの重視）。
+      </div>
+    </details>
+  </section>
+</main>
+
+<script>
+(function(){
+  const primerEl = document.getElementById('primer');
+  const templateEl = document.getElementById('template');
+  const sanitizeU = document.getElementById('sanitizeU');
+  const strictLen = document.getElementById('strictLen');
+  const useRC = document.getElementById('useRC');
+  const threePrimeSide = document.getElementById('threePrimeSide');
+  const runBtn = document.getElementById('runBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const scoreEl = document.getElementById('score');
+  const denomEl = document.getElementById('denom');
+  const wmismEl = document.getElementById('wmism');
+  const tbody = document.getElementById('tbody');
+
+  const IUPAC = {
+    'A': new Set(['A']), 'C': new Set(['C']), 'G': new Set(['G']), 'T': new Set(['T']),
+    'R': new Set(['A','G']), 'Y': new Set(['C','T']), 'S': new Set(['G','C']), 'W': new Set(['A','T']),
+    'K': new Set(['G','T']), 'M': new Set(['A','C']), 'B': new Set(['C','G','T']), 'D': new Set(['A','G','T']),
+    'H': new Set(['A','C','T']), 'V': new Set(['A','C','G']), 'N': new Set(['A','C','G','T'])
+  };
+  const COMP = {'A':'T','C':'G','G':'C','T':'A','R':'Y','Y':'R','S':'S','W':'W','K':'M','M':'K','B':'V','V':'B','D':'H','H':'D','N':'N'};
+
+  function clean(s){ if(!s) return ''; s=(''+s).toUpperCase().replace(/\s+/g,''); if(sanitizeU.checked) s=s.replace(/U/g,'T'); return s; }
+  function rc(s){ let out=''; for(let i=s.length-1;i>=0;i--){ out += (COMP[s[i]]||'N'); } return out; }
+  function weights(n, side){
+    const w = new Array(n).fill(0.2);
+    const high = Math.min(4, n);
+    const mid = Math.min(4, Math.max(0, n - high));
+    if(side==='left'){
+      for(let i=0;i<high;i++) w[i]=1.0;
+      for(let i=high;i<high+mid;i++) w[i]=0.5;
+    }else{
+      for(let i=n-high;i<n;i++) w[i]=1.0;
+      for(let i=Math.max(0,n-high-mid); i<n-high; i++) w[i]=0.5;
+    }
+    return w;
+  }
+  function setOf(b){ return IUPAC[b] || (b? new Set([b]) : new Set()); }
+
+  function compute(){
+    tbody.innerHTML='';
+    const p = clean(primerEl.value);
+    let t = clean(templateEl.value);
+    if(!p || !t){ scoreEl.textContent='–'; denomEl.textContent='有効重み合計: –'; wmismEl.textContent='ミスマッチ重み合計: –'; return; }
+    if(useRC.checked) t = rc(t);
+
+    let pEval, tEval, side;
+    if(strictLen.checked){
+      // Evaluate as-aligned (full length), require same length
+      const n = Math.min(p.length, t.length);
+      pEval = p.slice(0,n); tEval = t.slice(0,n); side = threePrimeSide.value;
+    }else{
+      // Right-align 3' end (assume right is 3') and evaluate last up to 20 nt
+      const L = Math.min(20, p.length, t.length);
+      pEval = p.slice(-L); tEval = t.slice(-L); side = 'right';
+    }
+
+    const n = pEval.length; const w = weights(n, side);
+    let wsum=0, wmis=0;
+    const rows=[];
+    for(let i=0;i<n;i++){
+      const pb = pEval[i]; const tb = tEval[i];
+      const wi = w[i];
+      let d = 1; // default mismatch
+      if(pb==='N'){ d=0; } // primer N always match
+      else if(!tb){ d=1; } // template blank -> mismatch
+      else {
+        const sp = setOf(pb); const st = setOf(tb);
+        d = (sp.size>0 && st.size>0 && [...sp].some(x=>st.has(x))) ? 0 : 1;
+      }
+      const wd = wi*d; wsum+=wi; wmis+=wd;
+      rows.push({pos:i+1, w:wi, p:pb, t:tb, d, wd});
+    }
+    const score = wsum>0 ? 100*(1-(wmis/wsum)) : 0;
+    scoreEl.textContent = score.toFixed(2);
+    denomEl.textContent = `有効重み合計: ${wsum.toFixed(2)}`;
+    wmismEl.textContent = `ミスマッチ重み合計: ${wmis.toFixed(2)}`;
+
+    const frag = document.createDocumentFragment();
+    for(const r of rows){
+      const tr=document.createElement('tr');
+      const td1=document.createElement('td'); td1.textContent=r.pos; td1.style.textAlign='center';
+      const td2=document.createElement('td'); td2.textContent=r.w.toFixed(1); if(r.w===1.0) td2.classList.add('hl');
+      const td3=document.createElement('td'); td3.textContent=r.p||'';
+      const td4=document.createElement('td'); td4.textContent=r.t||'';
+      const td5=document.createElement('td'); td5.textContent=r.d;
+      const td6=document.createElement('td'); td6.textContent=r.wd.toFixed(2);
+      tr.append(td1,td2,td3,td4,td5,td6); frag.appendChild(tr);
+    }
+    tbody.appendChild(frag);
+  }
+
+  runBtn.addEventListener('click', compute);
+  clearBtn.addEventListener('click', ()=>{ primerEl.value=''; templateEl.value=''; tbody.innerHTML=''; scoreEl.textContent='–'; denomEl.textContent='有効重み合計: –'; wmismEl.textContent='ミスマッチ重み合計: –'; });
+})();
+</script>
+</body>
+</html>
