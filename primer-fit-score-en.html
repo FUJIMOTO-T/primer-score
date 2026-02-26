@@ -2,8 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Primer Fit Score (>
+  <meta name="viewport" content="width=device-width-Consensus / 0–100)</title>  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root { --bg:#0f172a; --panel:#111827; --muted:#9ca3af; --text:#e5e7eb; --accent:#22c55e; --warn:#ef4444; }
     html, body { margin:0; padding:0; background:var(--bg); color:var(--text);
@@ -123,7 +122,7 @@
         At each position, the mismatch indicator <code>d_i</code> is 0 for a match and 1 for a mismatch.
         IUPAC ambiguity codes are treated as consensus sets; a match occurs if the intersection of the primer and template sets is non-empty.
         The primer-side <code>N</code> always matches; blanks in the template are treated as mismatches.
-        The rationale of emphasizing the 3′ end and using a weighted objective is consistent with primer design practice (e.g., terminal stability and mis-priming concerns).
+        The rationale of emphasizing the 3′ end and using a weighted objective is consistent with primer design practice.
       </div>
     </details>
   </section>
@@ -144,7 +143,7 @@
   const wmismEl = document.getElementById('wmism');
   const tbody = document.getElementById('tbody');
 
-  // IUPAC and complements (kept identical to JP version’s logic)
+  // IUPAC and complements
   const IUPAC = {
     'A': new Set(['A']), 'C': new Set(['C']), 'G': new Set(['G']), 'T': new Set(['T']),
     'R': new Set(['A','G']), 'Y': new Set(['C','T']), 'S': new Set(['G','C']), 'W': new Set(['A','T']),
